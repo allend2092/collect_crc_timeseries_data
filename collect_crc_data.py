@@ -1,10 +1,15 @@
-# Start here
+# This script takes a file ouputted from anoter script I wrote called get_esxi_vmnics.py
+# you can find that script here: https://github.com/allend2092/get_vmnic_data/blob/main/get_esxi_vmnics.py
+# Run that script and put the output in the same directory as this script.
+#
+# This script will poll every ESXi host and each associated vmnic for its crc error data.
+
 
 import datetime
 from netmiko import ConnectHandler
-import pandas
 import json
 import time
+import pandas as pd
 
 # Define a function to retrieve the CRC counter output
 def get_crc_errors(hostname, username, password, nic):
@@ -40,6 +45,9 @@ with open('vmnic_data.json', 'r') as f:
 # Parse the JSON data
 json_data = json.loads(data)
 
+# Create an empty dataframe to store the data
+df = pd.DataFrame()
+
 # Iterate over the list of servers
 for server in json_data:
     hostname = server['hostname']
@@ -54,30 +62,44 @@ for server in json_data:
 for server in json_data:
     hostname = server['hostname']
     username = 'root'  # Replace with your username
-    password = 'pass'  # Replace with your password
+    password = 'password'  # Replace with your password
     nics = server['vmnic_names']
     for nic in nics:
-        errors = get_crc_errors(hostname, username, password, nic)
-        print(f'There have been {errors} CRC errors on {nic} on server {hostname}')
+        # Try connecting to the host
+        try:
+            errors = get_crc_errors(hostname, username, password, nic)
+        except Exception as e:
+            # If there is an exception, handle it here
+            print(f'Failed to connect to {hostname}: {e}')
+            # You can add a column to the dataframe to indicate that the host was not reachable
+            data = pd.DataFrame({'hostname': hostname, 'nic': nic, 'errors': 'NA', 'reachable': False}, index=[0])
+        else:
+            # If there is no exception, handle the data here
+            print(f'There have been {errors} CRC errors on {nic} on server {hostname}')
+            data = pd.DataFrame({'hostname': hostname, 'nic': nic, 'errors': errors, 'reachable': True}, index=[0])
+        # Append the data to the dataframe
+        df = pd.concat([df, data], ignore_index=True)
 
+# Print the dataframe
+print(df)
 
-# Define a function to parse the output of the command and extract the relevant data.
-# You will need to parse the output of the command and extract the data for each physical nic.
+# Convert the dataframe to a list of dictionaries
+json_vmnic_errors = df.to_dict('records')
 
-# Define a function to store the data in a Pandas dataframe.
-# You can create a Pandas dataframe to store the data for each ESXi server and physical nic.
+# Get the current timestamp
+timestamp = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
 
-# Write a main loop to iterate over the list of ESXi servers and execute the functions defined in steps 3-5.
+# Print the JSON object
+print(json.dumps(json_vmnic_errors, indent=4, sort_keys=True))
 
+filename = f'vmnic_errors_{timestamp}.json'
 
+# Pretty-print the JSON object
+json_vmnic_errors_pretty = json.dumps(json_vmnic_errors, indent=4, sort_keys=True)
 
+# Write the data to a JSON file in a pretty-printed format
+with open(filename, "w") as f:
+    f.write(json_vmnic_errors_pretty)
 
-'''
-Add code to handle errors and exceptions. You should include error handling code to handle any exceptions that may occur
- during the execution of the script. For example, you may want to catch exceptions related to SSH connections, command
-  execution, JSON parsing, or data parsing, and log the errors to a file or send an alert.
-
-Test the script and debug any issues. You can use a test environment to verify that the script is working as expected
- and debug any issues that may arise.
-'''
-
+# Print a message to confirm that the file has been written
+print(f'Data written to file {filename}')
